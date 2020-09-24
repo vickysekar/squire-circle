@@ -1,5 +1,6 @@
 package com.squirecircle.web.rest;
 
+import com.squirecircle.config.ApplicationProperties;
 import com.squirecircle.domain.User;
 import com.squirecircle.repository.UserRepository;
 import com.squirecircle.security.SecurityUtils;
@@ -14,8 +15,11 @@ import com.squirecircle.web.rest.vm.ManagedUserVM;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestTemplate;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
@@ -27,6 +31,15 @@ import java.util.*;
 @RestController
 @RequestMapping("/api")
 public class AccountResource {
+
+
+    @Autowired
+    ApplicationProperties applicationProperties;
+
+    @Autowired
+    @Qualifier("vanillaRestTemplate")
+    RestTemplate restTemplate;
+
 
     private static class AccountResourceException extends RuntimeException {
         private AccountResourceException(String message) {
@@ -52,19 +65,25 @@ public class AccountResource {
     /**
      * {@code POST  /register} : register the user.
      *
-     * @param managedUserVM the managed user View Model.
+     * @param userDTO the managed user View Model.
      * @throws InvalidPasswordException {@code 400 (Bad Request)} if the password is incorrect.
      * @throws EmailAlreadyUsedException {@code 400 (Bad Request)} if the email is already used.
      * @throws LoginAlreadyUsedException {@code 400 (Bad Request)} if the login is already used.
      */
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
-    public void registerAccount(@Valid @RequestBody ManagedUserVM managedUserVM) {
-        if (!checkPasswordLength(managedUserVM.getPassword())) {
-            throw new InvalidPasswordException();
+    public ResponseEntity<User> registerAccount(@Valid @RequestBody UserDTO userDTO) {
+        userDTO.setLogin(getUUIDRendomString());
+        User user = userService.registerUser(userDTO);
+        try {
+            HttpHeaders httpHeaders = new HttpHeaders();
+            httpHeaders.add("X-Authy-API-Key", applicationProperties.getTwilio().getKey());
+            HttpEntity<String> entity = new HttpEntity<>("parameters", httpHeaders);
+            restTemplate.exchange(applicationProperties.getTwilio().getSendURL() + "?via=sms&phone_number=" + userDTO.getMobileNumber() + "&country_code=91" + "&locale=" + applicationProperties.getTwilio().getTwilioLocale(), HttpMethod.POST, entity, Object.class);
+        }catch (Exception e){
+            throw new BadRequestAlertException("Failure in sending otp","Login","otp-failure");
         }
-        User user = userService.registerUser(managedUserVM, managedUserVM.getPassword());
-        mailService.sendActivationEmail(user);
+        return ResponseEntity.ok(user);
     }
 
     /**
@@ -128,60 +147,7 @@ public class AccountResource {
             userDTO.getLangKey(), userDTO.getImageUrl());
     }
 
-    /**
-     * {@code POST  /account/change-password} : changes the current user's password.
-     *
-     * @param passwordChangeDto current and new password.
-     * @throws InvalidPasswordException {@code 400 (Bad Request)} if the new password is incorrect.
-     */
-    @PostMapping(path = "/account/change-password")
-    public void changePassword(@RequestBody PasswordChangeDTO passwordChangeDto) {
-        if (!checkPasswordLength(passwordChangeDto.getNewPassword())) {
-            throw new InvalidPasswordException();
-        }
-        userService.changePassword(passwordChangeDto.getCurrentPassword(), passwordChangeDto.getNewPassword());
-    }
-
-    /**
-     * {@code POST   /account/reset-password/init} : Send an email to reset the password of the user.
-     *
-     * @param mail the mail of the user.
-     */
-    @PostMapping(path = "/account/reset-password/init")
-    public void requestPasswordReset(@RequestBody String mail) {
-        Optional<User> user = userService.requestPasswordReset(mail);
-        if (user.isPresent()) {
-            mailService.sendPasswordResetMail(user.get());
-        } else {
-            // Pretend the request has been successful to prevent checking which emails really exist
-            // but log that an invalid attempt has been made
-            log.warn("Password reset requested for non existing mail '{}'", mail);
-        }
-    }
-
-    /**
-     * {@code POST   /account/reset-password/finish} : Finish to reset the password of the user.
-     *
-     * @param keyAndPassword the generated key and the new password.
-     * @throws InvalidPasswordException {@code 400 (Bad Request)} if the password is incorrect.
-     * @throws RuntimeException {@code 500 (Internal Server Error)} if the password could not be reset.
-     */
-    @PostMapping(path = "/account/reset-password/finish")
-    public void finishPasswordReset(@RequestBody KeyAndPasswordVM keyAndPassword) {
-        if (!checkPasswordLength(keyAndPassword.getNewPassword())) {
-            throw new InvalidPasswordException();
-        }
-        Optional<User> user =
-            userService.completePasswordReset(keyAndPassword.getNewPassword(), keyAndPassword.getKey());
-
-        if (!user.isPresent()) {
-            throw new AccountResourceException("No user was found for this reset key");
-        }
-    }
-
-    private static boolean checkPasswordLength(String password) {
-        return !StringUtils.isEmpty(password) &&
-            password.length() >= ManagedUserVM.PASSWORD_MIN_LENGTH &&
-            password.length() <= ManagedUserVM.PASSWORD_MAX_LENGTH;
+    public String getUUIDRendomString(){
+        return UUID.randomUUID().toString();
     }
 }

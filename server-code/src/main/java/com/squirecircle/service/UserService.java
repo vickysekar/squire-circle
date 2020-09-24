@@ -1,5 +1,6 @@
 package com.squirecircle.service;
 
+import com.squirecircle.config.ApplicationProperties;
 import com.squirecircle.config.Constants;
 import com.squirecircle.domain.Authority;
 import com.squirecircle.domain.User;
@@ -10,17 +11,24 @@ import com.squirecircle.security.AuthoritiesConstants;
 import com.squirecircle.security.SecurityUtils;
 import com.squirecircle.service.dto.UserDTO;
 
+import com.squirecircle.web.rest.errors.LoginAlreadyUsedException;
 import io.github.jhipster.security.RandomUtil;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.CacheManager;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -46,6 +54,13 @@ public class UserService {
 
     private final CacheManager cacheManager;
 
+    @Autowired
+    @Qualifier("vanillaRestTemplate")
+    private  RestTemplate restTemplate;
+
+    @Autowired
+    private ApplicationProperties applicationProperties;
+
     public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, UserSearchRepository userSearchRepository, AuthorityRepository authorityRepository, CacheManager cacheManager) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
@@ -54,12 +69,24 @@ public class UserService {
         this.cacheManager = cacheManager;
     }
 
+    public void verify(String mobileNumber,String otp){
+        HttpHeaders httpHeaders = new HttpHeaders();
+        httpHeaders.add("X-Authy-API-Key", applicationProperties.getTwilio().getKey());
+        HttpEntity<String> entity = new HttpEntity<>("parameters", httpHeaders);
+        restTemplate.exchange(applicationProperties.getTwilio().getVerifyURL() + "?phone_number=" + mobileNumber + "&country_code= 91" + "&verification_code=" + otp, HttpMethod.GET, entity, Object.class);
+        userRepository.findByMobileNumber(mobileNumber)
+            .ifPresent(user -> {
+                user.setActivated(true);
+                this.clearUserCaches(user);
+            });
+    }
+
     public Optional<User> activateRegistration(String key) {
         log.debug("Activating user for activation key {}", key);
         return userRepository.findOneByActivationKey(key)
             .map(user -> {
                 // activate given user for the registration key.
-                user.setActivated(true);
+                user.setEmailVerified(true);
                 user.setActivationKey(null);
                 userSearchRepository.save(user);
                 this.clearUserCaches(user);
@@ -68,35 +95,11 @@ public class UserService {
             });
     }
 
-    public Optional<User> completePasswordReset(String newPassword, String key) {
-        log.debug("Reset user password for reset key {}", key);
-        return userRepository.findOneByResetKey(key)
-            .filter(user -> user.getResetDate().isAfter(Instant.now().minusSeconds(86400)))
-            .map(user -> {
-                user.setPassword(passwordEncoder.encode(newPassword));
-                user.setResetKey(null);
-                user.setResetDate(null);
-                this.clearUserCaches(user);
-                return user;
-            });
-    }
-
-    public Optional<User> requestPasswordReset(String mail) {
-        return userRepository.findOneByEmailIgnoreCase(mail)
-            .filter(User::getActivated)
-            .map(user -> {
-                user.setResetKey(RandomUtil.generateResetKey());
-                user.setResetDate(Instant.now());
-                this.clearUserCaches(user);
-                return user;
-            });
-    }
-
-    public User registerUser(UserDTO userDTO, String password) {
-        userRepository.findOneByLogin(userDTO.getLogin().toLowerCase()).ifPresent(existingUser -> {
+    public User registerUser(UserDTO userDTO) {
+        userRepository.findByMobileNumber(userDTO.getMobileNumber()).ifPresent(existingUser -> {
             boolean removed = removeNonActivatedUser(existingUser);
             if (!removed) {
-                throw new UsernameAlreadyUsedException();
+                throw new LoginAlreadyUsedException();
             }
         });
         userRepository.findOneByEmailIgnoreCase(userDTO.getEmail()).ifPresent(existingUser -> {
@@ -106,11 +109,12 @@ public class UserService {
             }
         });
         User newUser = new User();
-        String encryptedPassword = passwordEncoder.encode(password);
         newUser.setLogin(userDTO.getLogin().toLowerCase());
         // new user gets initially a generated password
-        newUser.setPassword(encryptedPassword);
         newUser.setFirstName(userDTO.getFirstName());
+        newUser.setMobileNumber(userDTO.getMobileNumber());
+        newUser.setGender(userDTO.getGender());
+        newUser.setAge(userDTO.getAge());
         newUser.setLastName(userDTO.getLastName());
         if (userDTO.getEmail() != null) {
             newUser.setEmail(userDTO.getEmail().toLowerCase());
@@ -155,8 +159,9 @@ public class UserService {
         } else {
             user.setLangKey(userDTO.getLangKey());
         }
-        String encryptedPassword = passwordEncoder.encode(RandomUtil.generatePassword());
-        user.setPassword(encryptedPassword);
+        user.setMobileNumber(userDTO.getMobileNumber());
+        user.setGender(userDTO.getGender());
+        user.setAge(userDTO.getAge());
         user.setResetKey(RandomUtil.generateResetKey());
         user.setResetDate(Instant.now());
         user.setActivated(true);
@@ -221,6 +226,8 @@ public class UserService {
                     user.setEmail(userDTO.getEmail().toLowerCase());
                 }
                 user.setImageUrl(userDTO.getImageUrl());
+                user.setGender(userDTO.getGender());
+                user.setAge(userDTO.getAge());
                 user.setActivated(userDTO.isActivated());
                 user.setLangKey(userDTO.getLangKey());
                 Set<Authority> managedAuthorities = user.getAuthorities();
@@ -245,21 +252,6 @@ public class UserService {
             this.clearUserCaches(user);
             log.debug("Deleted User: {}", user);
         });
-    }
-
-    public void changePassword(String currentClearTextPassword, String newPassword) {
-        SecurityUtils.getCurrentUserLogin()
-            .flatMap(userRepository::findOneByLogin)
-            .ifPresent(user -> {
-                String currentEncryptedPassword = user.getPassword();
-                if (!passwordEncoder.matches(currentClearTextPassword, currentEncryptedPassword)) {
-                    throw new InvalidPasswordException();
-                }
-                String encryptedPassword = passwordEncoder.encode(newPassword);
-                user.setPassword(encryptedPassword);
-                this.clearUserCaches(user);
-                log.debug("Changed password for User: {}", user);
-            });
     }
 
     @Transactional(readOnly = true)

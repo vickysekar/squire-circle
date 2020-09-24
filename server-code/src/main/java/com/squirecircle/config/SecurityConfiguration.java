@@ -3,21 +3,29 @@ package com.squirecircle.config;
 import com.squirecircle.security.*;
 import com.squirecircle.security.jwt.*;
 
+import org.springframework.beans.factory.BeanInitializationException;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.cloud.client.loadbalancer.RestTemplateCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.builders.WebSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.filter.CorsFilter;
 import org.zalando.problem.spring.web.advice.security.SecurityProblemSupport;
+
+import javax.annotation.PostConstruct;
 
 @EnableWebSecurity
 @EnableGlobalMethodSecurity(prePostEnabled = true, securedEnabled = true)
@@ -26,13 +34,35 @@ public class SecurityConfiguration extends WebSecurityConfigurerAdapter {
 
     private final TokenProvider tokenProvider;
 
+    private final UserDetailsService userDetailsService;
+
+    private final AuthenticationManagerBuilder authenticationManagerBuilder;
+
+    private CustomAuthenticationProvider customAuthenticationProvider;
+
+
     private final CorsFilter corsFilter;
     private final SecurityProblemSupport problemSupport;
 
-    public SecurityConfiguration(TokenProvider tokenProvider, CorsFilter corsFilter, SecurityProblemSupport problemSupport) {
+    public SecurityConfiguration(UserDetailsService userDetailsService,TokenProvider tokenProvider, CorsFilter corsFilter, SecurityProblemSupport problemSupport,AuthenticationManagerBuilder authenticationManagerBuilder,CustomAuthenticationProvider customAuthenticationProvider) {
         this.tokenProvider = tokenProvider;
         this.corsFilter = corsFilter;
         this.problemSupport = problemSupport;
+        this.userDetailsService = userDetailsService;
+        this.authenticationManagerBuilder = authenticationManagerBuilder;
+        this.customAuthenticationProvider = customAuthenticationProvider;
+    }
+
+    @PostConstruct
+    public void init() throws Exception {
+        try {
+            authenticationManagerBuilder
+                .authenticationProvider(customAuthenticationProvider)
+                .userDetailsService(userDetailsService)
+                .passwordEncoder(passwordEncoder());
+        } catch (Exception e) {
+            throw new BeanInitializationException("Security configuration failed", e);
+        }
     }
 
     @Bean
@@ -96,5 +126,20 @@ public class SecurityConfiguration extends WebSecurityConfigurerAdapter {
 
     private JWTConfigurer securityConfigurerAdapter() {
         return new JWTConfigurer(tokenProvider);
+    }
+
+
+    @Bean
+    @Qualifier("loadBalancedRestTemplate")
+    public RestTemplate loadBalancedRestTemplate(RestTemplateCustomizer customizer) {
+        RestTemplate restTemplate = new RestTemplate();
+        customizer.customize(restTemplate);
+        return restTemplate;
+    }
+
+    @Bean
+    @Qualifier("vanillaRestTemplate")
+    public RestTemplate vanillaRestTemplate() {
+        return new RestTemplate();
     }
 }

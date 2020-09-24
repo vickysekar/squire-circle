@@ -66,6 +66,7 @@ spring:
       hibernate.connection.provider_disables_autocommit: true
       hibernate.cache.use_second_level_cache: true
       hibernate.cache.use_query_cache: false
+      hibernate.hbm2ddl.auto: update
       hibernate.generate_statistics: false
   data:
     elasticsearch:
@@ -149,4 +150,19 @@ jhipster:
 # https://www.jhipster.tech/common-application-properties/
 # ===================================================================
 
-# application:
+application:
+  twilio:
+    messageURL: https://api.twilio.com/2010-04-01/Accounts
+    sendURL: https://api.authy.com/protected/json/phones/verification/start
+    verifyURL: https://api.authy.com/protected/json/phones/verification/check
+    key: GHEKTz7GTQvgSlXLNR7PuwYIIYTcYNPE
+    #twilio-account-sid: ACf9b74129308590ef91db529b16df1a50
+    #twilio-auth-token: 1b7df1d8fcf973563cd2b1c509f6b291
+    # twilio-account-sid: AC0308b082d4272fcce8e5a5d7343d0c7
+    # twilio-auth-token: e74cb90714e9a113d50a2dce47c0c72
+    twilioAccountSid: AC0308b082d4272fcce8e5a5d7343d0c7b
+    twilioAuthToken: e74cb90714e9a113d50a2dce47c0c727
+    twilioServiceURL: "https://chat.twilio.com/v2/Services"
+    twilioTextChatServiceId: IScbcaf11b64e04571b4d77ea8055115db
+    twilio-sms-number: +1831713169
+    twilio-locale: en

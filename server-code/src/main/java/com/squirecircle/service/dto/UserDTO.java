@@ -32,6 +32,15 @@ public class UserDTO {
     @Size(min = 5, max = 254)
     private String email;
 
+    private String mobileNumber;
+
+    private User.Gender gender;
+
+    private Integer age;
+
+    private boolean emailVerified = false;
+
+
     @Size(max = 256)
     private String imageUrl;
 
@@ -62,6 +71,10 @@ public class UserDTO {
         this.email = user.getEmail();
         this.activated = user.getActivated();
         this.imageUrl = user.getImageUrl();
+        this.emailVerified = user.isEmailVerified();
+        this.mobileNumber = user.getMobileNumber();
+        this.gender = user.getGender();
+        this.age = user.getAge();
         this.langKey = user.getLangKey();
         this.createdBy = user.getCreatedBy();
         this.createdDate = user.getCreatedDate();
@@ -70,6 +83,38 @@ public class UserDTO {
         this.authorities = user.getAuthorities().stream()
             .map(Authority::getName)
             .collect(Collectors.toSet());
+    }
+
+    public User.Gender getGender() {
+        return gender;
+    }
+
+    public void setGender(User.Gender gender) {
+        this.gender = gender;
+    }
+
+    public Integer getAge() {
+        return age;
+    }
+
+    public void setAge(Integer age) {
+        this.age = age;
+    }
+
+    public boolean isEmailVerified() {
+        return emailVerified;
+    }
+
+    public void setEmailVerified(boolean emailVerified) {
+        this.emailVerified = emailVerified;
+    }
+
+    public String getMobileNumber() {
+        return mobileNumber;
+    }
+
+    public void setMobileNumber(String mobileNumber) {
+        this.mobileNumber = mobileNumber;
     }
 
     public Long getId() {

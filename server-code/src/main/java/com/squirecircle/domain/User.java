@@ -29,23 +29,18 @@ import java.util.Set;
 @org.springframework.data.elasticsearch.annotations.Document(indexName = "user")
 public class User extends AbstractAuditingEntity implements Serializable {
 
+    public enum Gender {MALE,FEMALE}
+
     private static final long serialVersionUID = 1L;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @NotNull
     @Pattern(regexp = Constants.LOGIN_REGEX)
     @Size(min = 1, max = 50)
     @Column(length = 50, unique = true, nullable = false)
     private String login;
-
-    @JsonIgnore
-    @NotNull
-    @Size(min = 60, max = 60)
-    @Column(name = "password_hash", length = 60, nullable = false)
-    private String password;
 
     @Size(max = 50)
     @Column(name = "first_name", length = 50)
@@ -60,9 +55,20 @@ public class User extends AbstractAuditingEntity implements Serializable {
     @Column(length = 254, unique = true)
     private String email;
 
-    @NotNull
+    @Size(min = 5, max = 50)
+    @Column(length = 50, unique = true)
+    private String mobileNumber;
+
+    @Enumerated(EnumType.STRING)
+    private Gender gender;
+
+    private Integer age;
+
     @Column(nullable = false)
     private boolean activated = false;
+
+    @Column(nullable = false)
+    private boolean emailVerified = false;
 
     @Size(min = 2, max = 10)
     @Column(name = "lang_key", length = 10)
@@ -113,12 +119,36 @@ public class User extends AbstractAuditingEntity implements Serializable {
         this.login = StringUtils.lowerCase(login, Locale.ENGLISH);
     }
 
-    public String getPassword() {
-        return password;
+    public String getMobileNumber() {
+        return mobileNumber;
     }
 
-    public void setPassword(String password) {
-        this.password = password;
+    public void setMobileNumber(String mobileNumber) {
+        this.mobileNumber = mobileNumber;
+    }
+
+    public Gender getGender() {
+        return gender;
+    }
+
+    public void setGender(Gender gender) {
+        this.gender = gender;
+    }
+
+    public Integer getAge() {
+        return age;
+    }
+
+    public void setAge(Integer age) {
+        this.age = age;
+    }
+
+    public boolean isEmailVerified() {
+        return emailVerified;
+    }
+
+    public void setEmailVerified(boolean emailVerified) {
+        this.emailVerified = emailVerified;
     }
 
     public String getFirstName() {
